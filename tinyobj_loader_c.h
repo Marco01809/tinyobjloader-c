@@ -534,37 +534,38 @@ static int hash_table_insert_value(unsigned long hash, long value, hash_table_t*
   /* Insert value */
   size_t start_index = hash % hash_table->capacity;
   size_t index = start_index;
-  hash_table_entry_t* last_entry = NULL;
+  hash_table_entry_t* start_entry = hash_table->entries + start_index;
   size_t i;
   hash_table_entry_t* entry;
 
-  /*
-   * While there are collisions, keep probing and log the last entry touched
-   * If we reach an empty entry, append the entry to the last entry's linked list
-   * We form these lists to avoid doing the probing again, The linear search through
-   * the linked list is the length of numbers initially probed, so it's equivalent to
-   * doing the probing again.
-   */
-  for (i = 0; hash_table->entries[index].filled; i++)
+  printf("hash_table_insert_value(%lu, %ld, table);\n", hash, value);
+
+  for (i = 1; hash_table->entries[index].filled; i++)
   {
-    if (hash_table->entries[index].hash == hash)
-      break;
     if (i >= hash_table->capacity)
       return HASH_TABLE_ERROR;
-    last_entry = hash_table->entries + index;
-    index = (start_index + (i * i)) % hash_table->capacity; 
+    index = (start_index + (i * i)) % hash_table->capacity;
+    printf("\ti=%lu yields index=%lu\n", i, index);
   }
 
   entry = hash_table->entries + index;
   entry->hash = hash;
   entry->filled = 1;
   entry->value = value;
-  entry->next = NULL;
-  entry->prev = last_entry;
 
-  if (last_entry) {
-    last_entry->next = entry;
+  if (index != start_index) {
+    /* This is a new entry, but not the start entry, hence we need to add a next pointer to our entry */
+    entry->next = start_entry->next;
+    if (entry->next != NULL) {
+      entry->next->prev = entry;
+    }
+    entry->prev = start_entry;
+    start_entry->next = entry;
+
+    printf("\thave start_entry=%p: set entry->next=%p, start_entry->next=%p\n", start_entry, entry->next, start_entry->next);
   }
+
+  printf("\tinserted in %lu @ %p\n", index, entry);
 
   return HASH_TABLE_SUCCESS;
 }
@@ -583,14 +584,17 @@ static int hash_table_insert(unsigned long hash, long value, hash_table_t* hash_
 static hash_table_entry_t* hash_table_find(unsigned long hash, hash_table_t* hash_table)
 {
   hash_table_entry_t* entry = hash_table->entries + (hash % hash_table->capacity);
+  printf("hash_table_find(%lu, table); starting entry is %lu @ %p\n", hash, hash % hash_table->capacity, entry);
   while (entry)
   {
     if (entry->hash == hash && entry->filled)
     {
+      printf("\telement found @ %p\n", entry);
       return entry;
     }
     entry = entry->next;
   }
+  printf("\telement not found\n");
   return NULL;
 }
 
@@ -610,12 +614,22 @@ static void hash_table_maybe_grow(size_t new_n, hash_table_t* hash_table)
   new_hash_table.capacity = new_capacity;
   new_hash_table.n = hash_table->n;
 
+  printf("========================= maybe_grow: grow required =========================\n");
+  printf("hash_table_maybe_grow(new_n=%lu, table); new_capacity=%lu, n=%lu, capacity=%lu\n", new_n, new_capacity, hash_table->n, hash_table->capacity);
+  printf("\tOld hash table dump:\n");
+  for (i = 0; i < hash_table->capacity; i++) {
+    hash_table_entry_t* e = hash_table->entries + i;
+    printf("\tentry %lu @ %p: hash=%lu,\tfilled=%d, prev=%p, next=%p\n", i, e, e->hash, e->filled, e->prev, e->next);
+  }
+
   /* Rehash */
   for (i = 0; i < hash_table->capacity; i++)
   {
+    printf("\nRehashing hashes[%lu]\n", i);
     hash_table_entry_t* entry = hash_table_find(hash_table->hashes[i], hash_table);
     hash_table_insert_value(hash_table->hashes[i], entry->value, &new_hash_table);
   }
+  printf("=========================== maybe_grow: grow done ===========================\n");
 
   free(hash_table->entries);
   (*hash_table) = new_hash_table;
@@ -630,6 +644,8 @@ static void hash_table_set(const char* name, size_t val, hash_table_t* hash_tabl
 {
   /* Hash name */
   unsigned long hash = hash_djb2((const unsigned char *)name);
+
+  printf("\nhash_table_set(\"%s\", %lu, table); hash=%lu\n", name, val, hash);
 
   hash_table_entry_t* entry = hash_table_find(hash, hash_table);
   if (entry)
